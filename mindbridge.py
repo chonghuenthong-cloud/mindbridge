@@ -16,7 +16,6 @@ import re
 import hashlib
 import time
 import random
-import requests
 
 # Malaysia timezone
 MALAYSIA_TZ = pytz.timezone('Asia/Kuala_Lumpur')
@@ -41,49 +40,18 @@ try:
     PLOTLY_AVAILABLE = True
 except ImportError:
     PLOTLY_AVAILABLE = False
-    st.warning("Plotly not available. Charts will be disabled.")
 
-# Gemini AI-Enhanced Sentiment Analysis
-class GeminiSentimentAnalyzer:
-    """Uses Google Gemini AI for sophisticated sentiment analysis"""
+# Enhanced Rule-Based Sentiment Analyzer
+class SentimentAnalyzer:
+    """Enhanced rule-based sentiment analysis without API dependency"""
     
     def __init__(self):
-        # Always initialize fallback first (in case API fails)
-        self._init_fallback()
-        
-        # Get API key from Streamlit secrets with better error handling
-        self.api_key = None
-        try:
-            # Try different ways to access secrets
-            if hasattr(st, 'secrets'):
-                if "GEMINI_API_KEY" in st.secrets:
-                    self.api_key = st.secrets["GEMINI_API_KEY"]
-                    print(f"✅ Gemini API key found: {self.api_key[:20]}...")
-                else:
-                    print("❌ GEMINI_API_KEY not found in secrets")
-                    print(f"Available secrets: {list(st.secrets.keys())}")
-            else:
-                print("❌ st.secrets not available")
-        except Exception as e:
-            print(f"❌ Error accessing secrets: {e}")
-            self.api_key = None
-        
-        if self.api_key and len(self.api_key) > 10:
-            self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={self.api_key}"
-            self.use_fallback = False
-            print("✅ Gemini AI enabled with model: gemini-1.5-flash")
-        else:
-            st.warning("⚠️ Gemini AI unavailable. Add GEMINI_API_KEY to Streamlit secrets for smart analysis.")
-            self.use_fallback = True
-            print("⚠️ Using fallback analysis")
-    
-    def _init_fallback(self):
-        """Simple fallback analyzer if no API key"""
         self.positive_words = [
             'good', 'great', 'excellent', 'amazing', 'wonderful', 'fantastic', 
             'happy', 'joy', 'love', 'like', 'enjoy', 'pleased', 'satisfied',
             'hope', 'optimistic', 'confident', 'grateful', 'thankful', 'blessed',
-            'better', 'improving', 'positive', 'calm', 'relaxed'
+            'better', 'improving', 'positive', 'calm', 'relaxed', 'peaceful',
+            'excited', 'cheerful', 'content', 'proud', 'motivated'
         ]
         
         self.negative_words = [
@@ -91,129 +59,131 @@ class GeminiSentimentAnalyzer:
             'dislike', 'upset', 'frustrated', 'disappointed', 'worried',
             'anxious', 'anxiety', 'depressed', 'depression', 'lonely', 'hopeless', 
             'worthless', 'stress', 'stressed', 'overwhelmed', 'exhausted', 'nervous',
-            'scared', 'fear', 'panic', 'crying', 'tired'
+            'scared', 'fear', 'panic', 'crying', 'tired', 'miserable', 'unhappy',
+            'suffering', 'pain', 'hurt', 'struggling'
+        ]
+        
+        self.depression_indicators = [
+            'depressed', 'depression', 'hopeless', 'worthless', 'empty', 'numb',
+            'no energy', 'cant sleep', 'sleeping too much', 'no interest',
+            'dont care', 'give up', 'pointless', 'no motivation'
+        ]
+        
+        self.anxiety_indicators = [
+            'anxious', 'anxiety', 'worried', 'worry', 'nervous', 'panic',
+            'scared', 'fear', 'terrified', 'overwhelmed', 'cant breathe',
+            'heart racing', 'restless', 'on edge', 'cant relax'
+        ]
+        
+        self.crisis_keywords = [
+            'suicide', 'suicidal', 'kill myself', 'end it all', 'die', 'dying',
+            'death wish', 'no reason to live', 'better off dead', 'harm myself',
+            'hurt myself', 'end my life', 'want to die', 'cant go on'
+        ]
+        
+        # Sarcasm/minimization phrases
+        self.sarcasm_indicators = [
+            "i'm fine", "im fine", "everything is fine", "totally fine",
+            "just great", "couldn't be better", "never better", "perfect"
         ]
     
     def analyze_sentiment(self, text, conversation_history=None):
-        """Analyze with Gemini AI or fallback to simple method"""
-        if self.use_fallback:
-            return self._simple_analysis(text)
+        """Enhanced analysis with pattern recognition"""
+        text_lower = text.lower()
+        words = text_lower.split()
         
-        try:
-            result = self._gemini_analysis(text, conversation_history)
-            st.sidebar.success("✅ Gemini AI worked!")
-            return result
-        except Exception as e:
-            error_msg = str(e)
-            print(f"❌ GEMINI ERROR: {error_msg}")
-            st.sidebar.error(f"🚨 Gemini Failed: {error_msg[:200]}")
-            return self._simple_analysis(text)
-    
-    def _gemini_analysis(self, text, conversation_history=None):
-        """Use Gemini AI for sophisticated analysis"""
-        try:
-            # Build context from conversation history
-            context = ""
-            if conversation_history:
-                recent = conversation_history[-5:]  # Last 5 messages
-                context = "\n".join([f"{m['role']}: {m['content']}" for m in recent])
-            
-            prompt = f"""You are a clinical mental health AI analyzer. Analyze this patient message for mental health indicators.
-
-{f"Previous conversation context:\n{context}\n" if context else ""}
-
-Current patient message: "{text}"
-
-Analyze and return ONLY valid JSON (no markdown, no explanation):
-{{
-    "sentiment_score": <float between -1.0 (very negative) and 1.0 (very positive)>,
-    "is_sarcastic": <true or false>,
-    "true_emotion": "<actual emotion if sarcastic, or 'none' if not>",
-    "depression_indicators": <integer count 0-10>,
-    "anxiety_indicators": <integer count 0-10>,
-    "crisis_indicators": <integer count 0-5>,
-    "risk_level": "<Critical or High or Medium or Low>",
-    "emotional_state": "<brief 5-10 word description>",
-    "key_concerns": ["<concern1>", "<concern2>"],
-    "confidence": <float between 0.0 and 1.0>
-}}
-
-CRITICAL: Detect sarcasm ("I'm fine" when struggling), minimization, hidden emotions, and consider conversation context."""
-
-            data = {
-                "contents": [{
-                    "parts": [{"text": prompt}]
-                }],
-                "generationConfig": {
-                    "temperature": 0.3,
-                    "maxOutputTokens": 1024
-                }
-            }
-            
-            print(f"📡 Calling Gemini API: {self.api_url[:60]}...")
-            response = requests.post(self.api_url, json=data, timeout=30)
-            print(f"📡 Response status: {response.status_code}")
-            
-            if response.status_code != 200:
-                error_detail = response.text[:500]
-                print(f"❌ API Error Response: {error_detail}")
-                raise Exception(f"API returned {response.status_code}: {error_detail}")
-            
-            response.raise_for_status()
-            
-            result = response.json()
-            print(f"📡 Got JSON response")
-            
-            content = result['candidates'][0]['content']['parts'][0]['text']
-            print(f"📡 Raw content: {content[:200]}...")
-            
-            # Clean up response
-            content = content.replace('```json', '').replace('```', '').strip()
-            
-            # Extract JSON if embedded in text
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if json_match:
-                content = json_match.group()
-            
-            print(f"📡 Cleaned content: {content[:200]}...")
-            
-            analysis = json.loads(content)
-            analysis['analysis_timestamp'] = get_malaysia_time().isoformat()
-            analysis['ai_model'] = 'gemini-2.0-flash'
-            
-            print(f"✅ Analysis complete: {analysis.get('risk_level')}")
-            
-            return analysis
-            
-        except Exception as e:
-            print(f"❌ Exception in _gemini_analysis: {type(e).__name__}: {str(e)}")
-            raise
-    
-    def _simple_analysis(self, text):
-        """Fallback simple analysis"""
-        words = text.lower().split()
+        # Count different indicators
         positive = sum(1 for w in words if w.strip('.,!?') in self.positive_words)
         negative = sum(1 for w in words if w.strip('.,!?') in self.negative_words)
         
+        depression_count = sum(1 for phrase in self.depression_indicators if phrase in text_lower)
+        anxiety_count = sum(1 for phrase in self.anxiety_indicators if phrase in text_lower)
+        crisis_count = sum(1 for phrase in self.crisis_keywords if phrase in text_lower)
+        
+        # Calculate sentiment score
         score = 0
         if len(words) > 0:
             score = (positive - negative) / len(words) * 2
             score = max(-1.0, min(1.0, score))
         
+        # Detect sarcasm
+        is_sarcastic = False
+        true_emotion = "none"
+        for phrase in self.sarcasm_indicators:
+            if phrase in text_lower:
+                # If saying "fine" but with negative context
+                if negative > 0 or depression_count > 0 or anxiety_count > 0:
+                    is_sarcastic = True
+                    true_emotion = "distressed/struggling"
+                    score = min(score, -0.3)  # Adjust score downward
+                    break
+        
+        # Determine risk level
+        risk_level = "Low"
+        if crisis_count > 0:
+            risk_level = "Critical"
+        elif depression_count >= 3 or anxiety_count >= 3 or score < -0.5:
+            risk_level = "High"
+        elif depression_count >= 1 or anxiety_count >= 1 or score < -0.2:
+            risk_level = "Medium"
+        
+        # Determine emotional state
+        emotional_state = self._determine_emotional_state(
+            score, depression_count, anxiety_count, is_sarcastic
+        )
+        
+        # Identify key concerns
+        key_concerns = []
+        if crisis_count > 0:
+            key_concerns.append("Crisis keywords detected - immediate intervention needed")
+        if depression_count >= 2:
+            key_concerns.append("Significant depression indicators")
+        if anxiety_count >= 2:
+            key_concerns.append("Significant anxiety indicators")
+        if is_sarcastic:
+            key_concerns.append("Patient may be minimizing or hiding true feelings")
+        if 'sleep' in text_lower or 'tired' in text_lower or 'exhausted' in text_lower:
+            key_concerns.append("Sleep or fatigue concerns")
+        if 'work' in text_lower or 'job' in text_lower:
+            key_concerns.append("Work-related stress")
+        
         return {
             "sentiment_score": score,
-            "is_sarcastic": False,
-            "true_emotion": "unknown",
-            "depression_indicators": negative,
-            "anxiety_indicators": negative,
-            "crisis_indicators": 0,
-            "risk_level": "Medium" if negative > 2 else "Low",
-            "emotional_state": "Basic analysis mode (AI unavailable)",
-            "key_concerns": [],
-            "confidence": 0.5,
+            "is_sarcastic": is_sarcastic,
+            "true_emotion": true_emotion,
+            "depression_indicators": depression_count,
+            "anxiety_indicators": anxiety_count,
+            "crisis_indicators": crisis_count,
+            "risk_level": risk_level,
+            "emotional_state": emotional_state,
+            "key_concerns": key_concerns,
+            "confidence": 0.75,  # Rule-based confidence
             "analysis_timestamp": get_malaysia_time().isoformat(),
-            "ai_model": "simple-fallback"
+            "ai_model": "rule-based-enhanced"
         }
+    
+    def _determine_emotional_state(self, score, depression, anxiety, sarcastic):
+        """Determine overall emotional state"""
+        if sarcastic:
+            return "Likely masking distress with positive language"
+        elif score > 0.3:
+            return "Generally positive mood"
+        elif score > 0:
+            return "Neutral to mildly positive"
+        elif score > -0.3:
+            if anxiety > depression:
+                return "Showing signs of worry or anxiety"
+            elif depression > anxiety:
+                return "Showing signs of low mood"
+            else:
+                return "Experiencing some emotional difficulty"
+        else:
+            if anxiety > depression:
+                return "Significant anxiety and distress"
+            elif depression > anxiety:
+                return "Significant low mood or depression"
+            else:
+                return "Significant emotional distress"
 
 # Mock EMR Database
 class EMRDatabase:
@@ -292,10 +262,10 @@ class EMRDatabase:
                 self.patients[ic_number]['chat_sessions'] = []
             self.patients[ic_number]['chat_sessions'].append(session_data)
 
-# Mental Health Analysis Engine with Gemini AI
+# Mental Health Analysis Engine
 class MentalHealthAnalyzer:
     def __init__(self):
-        self.sentiment_analyzer = GeminiSentimentAnalyzer()
+        self.sentiment_analyzer = SentimentAnalyzer()
         
         # Crisis keywords for safety override
         self.crisis_keywords = [
@@ -305,8 +275,8 @@ class MentalHealthAnalyzer:
         ]
     
     def analyze_text(self, text, conversation_history=None):
-        """Analyze text using Gemini AI with conversation context"""
-        # Get AI analysis
+        """Analyze text using enhanced rule-based method"""
+        # Get analysis
         analysis = self.sentiment_analyzer.analyze_sentiment(text, conversation_history)
         
         # Crisis keyword safety override
@@ -323,7 +293,7 @@ class MentalHealthAnalyzer:
         return analysis
     
     def generate_recommendations(self, analysis_result, patient_history=None):
-        """Generate contextual recommendations based on AI analysis"""
+        """Generate contextual recommendations based on analysis"""
         risk_level = analysis_result.get("risk_level", "Low")
         emotional_state = analysis_result.get("emotional_state", "")
         key_concerns = analysis_result.get("key_concerns", [])
@@ -340,14 +310,14 @@ class MentalHealthAnalyzer:
         if is_sarcastic:
             true_emotion = analysis_result.get('true_emotion', 'unknown')
             recommendations["additional_notes"].append(
-                f"⚠️ Sarcasm/Masking Detected: Patient may be hiding true feelings. True emotion: {true_emotion}"
+                f"⚠️ Sarcasm/Minimization Detected: Patient may be hiding true feelings. True emotion: {true_emotion}"
             )
         
-        # Add AI confidence note
+        # Add confidence note
         confidence = analysis_result.get('confidence', 0)
-        if confidence > 0 and confidence < 0.6:
+        if confidence > 0:
             recommendations["additional_notes"].append(
-                f"ℹ️ AI Confidence: {confidence:.0%} - Consider additional clinical assessment"
+                f"ℹ️ Analysis Confidence: {confidence:.0%}"
             )
         
         # Add key concerns
@@ -356,7 +326,7 @@ class MentalHealthAnalyzer:
             recommendations["additional_notes"].append(f"🎯 Primary concerns: {concerns_text}")
         
         # Add emotional state
-        if emotional_state and "Basic analysis" not in emotional_state:
+        if emotional_state:
             recommendations["additional_notes"].append(f"Emotional state: {emotional_state}")
         
         # Risk-based recommendations
@@ -704,7 +674,6 @@ def show_chat_interface():
             else:
                 st.markdown(f'<div class="chat-message bot-message">💙 {message["content"]}</div>', unsafe_allow_html=True)
     
-    # Chat input
     # Chat input form (forms auto-clear on submit!)
     with st.form(key="chat_form", clear_on_submit=True):
         user_input = st.text_area("Share what's on your mind... 💭", 
@@ -715,9 +684,6 @@ def show_chat_interface():
         col1, col2, col3 = st.columns([1, 1, 2])
         with col1:
             send_button = st.form_submit_button("📤 Send Message")
-        with col2:
-            # Clear chat button outside form since it does different action
-            pass
     
     # Handle send button
     if send_button:
@@ -725,13 +691,13 @@ def show_chat_interface():
             # Add user message
             st.session_state.chat_messages.append({"role": "user", "content": user_input})
             
-            # Pass conversation history for AI context
+            # Pass conversation history for context
             conversation_history = [
                 {"role": msg["role"], "content": msg["content"]} 
                 for msg in st.session_state.chat_messages
             ]
             
-            # Analyze message with AI
+            # Analyze message
             analysis = st.session_state.analyzer.analyze_text(user_input, conversation_history)
             
             # Generate AI response
@@ -757,9 +723,9 @@ def show_chat_interface():
             ]
             st.rerun()
     
-    # Real-time analysis sidebar with Gemini AI insights
+    # Real-time analysis sidebar
     if len(st.session_state.chat_messages) > 1:
-        st.sidebar.subheader("📊 Real-time AI Analysis")
+        st.sidebar.subheader("📊 Real-time Analysis")
         
         # Analyze all user messages
         user_messages = [msg["content"] for msg in st.session_state.chat_messages if msg["role"] == "user"]
@@ -789,18 +755,18 @@ def show_chat_interface():
             st.sidebar.metric("Depression Indicators", analysis['depression_indicators'])
             st.sidebar.metric("Anxiety Indicators", analysis['anxiety_indicators'])
             
-            # Gemini AI Insights
+            # Analysis insights
             if analysis.get('is_sarcastic'):
                 st.sidebar.warning(f"⚠️ Sarcasm detected: {analysis.get('true_emotion', 'unknown')}")
             
             emotional_state = analysis.get('emotional_state', '')
-            if emotional_state and 'Basic analysis' not in emotional_state:
+            if emotional_state:
                 st.sidebar.write("**😔 Emotional State:**")
                 st.sidebar.write(emotional_state)
             
             confidence = analysis.get('confidence', 0)
             if confidence > 0:
-                st.sidebar.metric("🎯 AI Confidence", f"{confidence:.0%}")
+                st.sidebar.metric("🎯 Confidence", f"{confidence:.0%}")
             
             key_concerns = analysis.get('key_concerns', [])
             if key_concerns:
@@ -808,20 +774,9 @@ def show_chat_interface():
                 for concern in key_concerns:
                     st.sidebar.write(f"  • {concern}")
             
-            # Show AI model being used
+            # Show analysis method
             ai_model = analysis.get('ai_model', 'unknown')
-            if ai_model == 'gemini-2.0-flash':
-                st.sidebar.success("✨ Powered by Gemini AI")
-            elif ai_model == 'simple-fallback':
-                st.sidebar.info("ℹ️ Using basic analysis")
-            
-            # Debug info (helps troubleshoot)
-            with st.sidebar.expander("🔧 Debug Info"):
-                st.write(f"AI Model: {ai_model}")
-                st.write(f"API Key Present: {'Yes' if st.session_state.analyzer.sentiment_analyzer.api_key else 'No'}")
-                st.write(f"Using Fallback: {st.session_state.analyzer.sentiment_analyzer.use_fallback}")
-                if st.session_state.analyzer.sentiment_analyzer.api_key:
-                    st.write(f"API Key (first 20 chars): {st.session_state.analyzer.sentiment_analyzer.api_key[:20]}...")
+            st.sidebar.info(f"ℹ️ Analysis: {ai_model}")
 
 def generate_ai_response(user_input, analysis):
     """Generate contextual AI responses based on user input and analysis"""
@@ -935,7 +890,7 @@ def show_patient_reports():
                     st.metric("Depression Indicators", analysis.get('depression_indicators', 0))
                     st.metric("Anxiety Indicators", analysis.get('anxiety_indicators', 0))
                 
-                # Show AI insights if available
+                # Show insights if available
                 if analysis.get('is_sarcastic'):
                     st.warning(f"⚠️ Note: Sarcasm detected in communication. True emotion: {analysis.get('true_emotion')}")
                 
@@ -1070,12 +1025,12 @@ def show_doctor_patient_list():
             with col4:
                 st.metric("Anxiety Signs", analysis.get('anxiety_indicators', 0))
             
-            # Show AI insights
+            # Show insights
             if analysis.get('is_sarcastic'):
                 st.warning(f"⚠️ Sarcasm detected in latest session: {analysis.get('true_emotion')}")
             
             if analysis.get('key_concerns'):
-                st.write("**AI-Identified Concerns:**")
+                st.write("**Identified Concerns:**")
                 for concern in analysis['key_concerns']:
                     st.write(f"• {concern}")
 
@@ -1185,7 +1140,7 @@ def show_analytics_dashboard():
                 st.write(f"- Range: {min(sentiments):.2f} to {max(sentiments):.2f}")
         else:
             # Fallback to basic charts or tables when Plotly is not available
-            st.subheader("📊 Data Summary (Charts unavailable)")
+            st.subheader("📊 Data Summary")
             col1, col2 = st.columns(2)
         
             with col1:
@@ -1267,13 +1222,13 @@ def show_doctor_reports():
                     if analysis.get('crisis_indicators', 0) > 0:
                         st.error(f"⚠️ Crisis Keywords Detected: {analysis.get('crisis_indicators', 0)}")
                     
-                    # AI insights
+                    # Insights
                     if analysis.get('is_sarcastic'):
                         st.warning(f"⚠️ Sarcasm Detected: {analysis.get('true_emotion')}")
                     
                     confidence = analysis.get('confidence', 0)
                     if confidence > 0:
-                        st.info(f"AI Confidence: {confidence:.0%}")
+                        st.info(f"Confidence: {confidence:.0%}")
                 
                 with col2:
                     st.subheader("💡 Clinical Recommendations")
@@ -1293,7 +1248,7 @@ def show_doctor_reports():
                 # Show key concerns if available
                 key_concerns = analysis.get('key_concerns', [])
                 if key_concerns:
-                    st.subheader("🎯 AI-Identified Concerns")
+                    st.subheader("🎯 Identified Concerns")
                     for concern in key_concerns:
                         st.write(f"• {concern}")
                 
@@ -1368,7 +1323,7 @@ Risk Level: {analysis.get('risk_level', 'Unknown')}
 Sentiment Score: {analysis.get('sentiment_score', 0):.2f}
 Depression Indicators: {analysis.get('depression_indicators', 0)}
 Anxiety Indicators: {analysis.get('anxiety_indicators', 0)}
-AI Confidence: {analysis.get('confidence', 0):.0%}
+Confidence: {analysis.get('confidence', 0):.0%}
 """
 
     if analysis.get('is_sarcastic'):
@@ -1403,7 +1358,7 @@ RECOMMENDATIONS
     report += """
 IMPORTANT NOTES
 ---------------
-- This report is generated by AI and should be reviewed by a healthcare professional
+- This report is generated by rule-based analysis and should be reviewed by a healthcare professional
 - If you're experiencing a mental health crisis, contact emergency services (999) immediately
 - For ongoing support, contact Befrienders: 03-76272929
 - Regular follow-up with your healthcare provider is recommended
@@ -1412,8 +1367,7 @@ PRIVACY NOTICE
 --------------
 This report contains confidential medical information. Keep it secure and only share with authorized healthcare providers.
 
-Generated by MindBridge AI Mental Health Platform
-Powered by Gemini AI
+Generated by MindBridge Mental Health Platform
 """
     
     return report
@@ -1456,14 +1410,14 @@ Current Medications:
     
     report += f"""
 
-AI ANALYSIS RESULTS (Powered by Gemini AI)
--------------------------------------------
+ANALYSIS RESULTS
+-----------------
 Overall Risk Assessment: {analysis.get('risk_level', 'Unknown')}
 Sentiment Analysis Score: {analysis.get('sentiment_score', 0):.3f}
 Depression Risk Indicators: {analysis.get('depression_indicators', 0)}
 Anxiety Risk Indicators: {analysis.get('anxiety_indicators', 0)}
 Crisis Risk Indicators: {analysis.get('crisis_indicators', 0)}
-AI Confidence Level: {analysis.get('confidence', 0):.0%}
+Confidence Level: {analysis.get('confidence', 0):.0%}
 """
 
     if analysis.get('is_sarcastic'):
@@ -1474,7 +1428,7 @@ AI Confidence Level: {analysis.get('confidence', 0):.0%}
         report += f"\nEmotional State Assessment: {analysis.get('emotional_state')}\n"
     
     if analysis.get('key_concerns'):
-        report += "\nAI-Identified Key Concerns:\n"
+        report += "\nIdentified Key Concerns:\n"
         for concern in analysis['key_concerns']:
             report += f"• {concern}\n"
     
@@ -1563,17 +1517,17 @@ CLINICAL NOTES
 
 TECHNICAL DETAILS
 -----------------
-Analysis Engine: MindBridge AI v2.0 with Gemini Pro
-Assessment Method: Natural Language Processing + AI Sentiment Analysis
-AI Model: {analysis.get('ai_model', 'Unknown')}
+Analysis Engine: MindBridge v2.0
+Assessment Method: Enhanced Rule-Based Analysis
+Analysis Model: {analysis.get('ai_model', 'Unknown')}
 Confidence Level: {analysis.get('confidence', 0):.0%}
 Data Quality: {'Good' if len(user_messages) > 2 else 'Limited'}
 
 DISCLAIMER
 ----------
-This report is generated using AI technology and should be used as a clinical decision support tool only. 
+This report is generated using automated analysis and should be used as a clinical decision support tool only. 
 All recommendations should be reviewed and validated by qualified mental health professionals.
-The AI analysis is based on text communication patterns and may not capture all relevant clinical factors.
+The analysis is based on text communication patterns and may not capture all relevant clinical factors.
 
 CONFIDENTIALITY NOTICE
 ----------------------
@@ -1582,8 +1536,7 @@ Distribution should be limited to personnel directly involved in patient care.
 Ensure compliance with local privacy and data protection regulations.
 
 Report Generated: {get_malaysia_time().strftime('%Y-%m-%d %H:%M:%S')}
-Generated by: MindBridge AI Mental Health Platform v2.0
-Powered by: Google Gemini AI
+Generated by: MindBridge Mental Health Platform v2.0
 """
     
     return report
