@@ -1,7 +1,7 @@
 import streamlit as st
 # Set page config FIRST before any other Streamlit commands
 st.set_page_config(
-    page_title="MindBridge - AI Mental Health Platform",
+    page_title="MindBridge - Mental Health Platform",
     page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -509,7 +509,7 @@ def main():
 
 def show_home_page():
     st.markdown('<h1 class="main-header">🧠 MindBridge</h1>', unsafe_allow_html=True)
-    st.markdown('<h3 style="text-align: center; color: #666;">AI-Powered Mental Health Support Platform</h3>', unsafe_allow_html=True)
+    st.markdown('<h3 style="text-align: center; color: #666;">Intelligent Mental Health Support Platform</h3>', unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns(3)
     
@@ -517,7 +517,7 @@ def show_home_page():
         st.markdown("""
         ### 🎯 **For Patients**
         - Secure access with IC number
-        - AI-powered mental health chat
+        - Intelligent mental health chat
         - Personalized health insights
         - Easy appointment booking
         """)
@@ -526,7 +526,7 @@ def show_home_page():
         st.markdown("""
         ### 👨‍⚕️ **For Healthcare Providers**
         - Comprehensive patient dashboard
-        - AI-generated mental health reports
+        - Automated mental health reports
         - Real-time risk assessment
         - Integrated EMR system
         """)
@@ -700,7 +700,7 @@ def show_chat_interface():
             # Analyze message
             analysis = st.session_state.analyzer.analyze_text(user_input, conversation_history)
             
-            # Generate AI response
+            # Generate response
             ai_response = generate_ai_response(user_input, analysis)
             st.session_state.chat_messages.append({"role": "assistant", "content": ai_response})
             
@@ -775,11 +775,12 @@ def show_chat_interface():
                     st.sidebar.write(f"  • {concern}")
             
             # Show analysis method
-            ai_model = analysis.get('ai_model', 'unknown')
-            st.sidebar.info(f"ℹ️ Analysis: {ai_model}")
+            analysis_method = analysis.get('ai_model', 'unknown')
+            if analysis_method == 'rule-based-enhanced':
+                st.sidebar.info("ℹ️ Analysis: Enhanced Pattern Recognition")
 
 def generate_ai_response(user_input, analysis):
-    """Generate contextual AI responses based on user input and analysis"""
+    """Generate contextual responses based on user input and analysis"""
     
     risk_level = analysis["risk_level"]
     sentiment = analysis["sentiment_score"]
@@ -1519,7 +1520,7 @@ TECHNICAL DETAILS
 -----------------
 Analysis Engine: MindBridge v2.0
 Assessment Method: Enhanced Rule-Based Analysis
-Analysis Model: {analysis.get('ai_model', 'Unknown')}
+Analysis Method: {analysis.get('ai_model', 'Unknown')}
 Confidence Level: {analysis.get('confidence', 0):.0%}
 Data Quality: {'Good' if len(user_messages) > 2 else 'Limited'}
 
